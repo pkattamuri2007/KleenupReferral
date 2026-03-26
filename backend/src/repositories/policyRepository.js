@@ -37,7 +37,7 @@ async function create({ policyName, serviceCategory }) {
 async function addTier(policyId, { tierSequence, durationMonths, metricType, metricValue }) {
   const tierId = uuidv4();
   const { rows } = await db.query(
-    `INSERT INTO policy_tiers (policy_tier_id, policy_id, tier_sequence, duration_months, metric_type, metric_value)
+    `INSERT INTO policy_tiers (tier_id, policy_id, tier_sequence, duration_months, metric_type, metric_value)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
     [tierId, policyId, tierSequence, durationMonths || null, metricType, metricValue]

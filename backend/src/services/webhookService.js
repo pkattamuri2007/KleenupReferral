@@ -3,6 +3,7 @@ const projectRepository = require("../repositories/projectRepository");
 const handoffRepository = require("../repositories/handoffRepository");
 const ledgerRepository = require("../repositories/ledgerRepository");
 const policyRepository = require("../repositories/policyRepository");
+const referralClockRepository = require("../repositories/referralClockRepository");
 const { buildSettlementRecommendations } = require("./computationService");
 const { hashNormalizedAddress } = require("../utils/formatters");
 
@@ -86,15 +87,35 @@ async function disputeCleared(data) {
     ? await agentRepository.findById(agent.parent_agent_id)
     : null;
 
+  const existingClock = await referralClockRepository.findByAddressHash(addressHash);
+  const completionDate = new Date();
+  const clockStartDate = existingClock?.clock_start_date || completionDate;
+
+  if (!existingClock) {
+    await referralClockRepository.createIfMissing({
+      addressHash,
+      owningAgentId: agent.agent_id,
+      firstMasterProjectId: masterProjectId,
+      clockStartDate: completionDate,
+    });
+  }
+
+  const mappedPolicyTiers = (policy.tiers || []).map((tier) => ({
+    tierSequence: tier.tier_sequence,
+    durationMonths: tier.duration_months,
+    metricType: tier.metric_type,
+    metricValue: Number(tier.metric_value),
+  }));
+
   const result = buildSettlementRecommendations({
     masterProjectId,
     agentId: agent.agent_id,
     grossFeeAmount: kleenupFeeAmount || 0,
-    policyTiers: policy.tiers || [],
-    clockStartDate: handoff.created_at,
-    completedAt: new Date(),
+    policyTiers: mappedPolicyTiers,
+    clockStartDate,
+    completedAt: completionDate,
     parentAgentId: parentAgent?.agent_id || null,
-    parentOverrideExpiresAt: null,
+    parentOverrideExpiresAt: parentAgent?.override_expires_at || null,
     parentOverrideRate: 0.1,
     serviceCategory,
     normalizedAddress,
