@@ -8,7 +8,7 @@ async function insertMany(entries) {
     const { rows } = await db.query(
       `INSERT INTO settlement_ledger
          (ledger_id, agent_id, master_project_id, transaction_type, amount, status,
-          admin_id, admin_reason_code, metadata_json)
+          actor_admin_id, admin_reason_code, metadata_json)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
@@ -46,7 +46,7 @@ async function findByAgent(agentId) {
 async function updateStatus(ledgerId, { status, adminId, reasonCode }) {
   const { rows } = await db.query(
     `UPDATE settlement_ledger
-     SET status = $1, admin_id = $2, admin_reason_code = $3
+     SET status = $1, actor_admin_id = $2, admin_reason_code = $3
      WHERE ledger_id = $4
      RETURNING *`,
     [status, adminId, reasonCode, ledgerId]

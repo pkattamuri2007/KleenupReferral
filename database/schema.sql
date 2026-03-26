@@ -161,6 +161,41 @@ CREATE TABLE IF NOT EXISTS project_eligibility_events (
 CREATE INDEX IF NOT EXISTS idx_project_eligibility_address_hash
 	ON project_eligibility_events (address_hash, completed_at DESC);
 
+CREATE TABLE IF NOT EXISTS project_shadow (
+	master_project_id VARCHAR(80) PRIMARY KEY,
+	normalized_address TEXT NULL,
+	address_hash VARCHAR(80) NULL,
+	service_category VARCHAR(40) NULL,
+	gross_transaction_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+	kleenup_fee_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+	project_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+	disputed_flag BOOLEAN NOT NULL DEFAULT FALSE,
+	computation_queued BOOLEAN NOT NULL DEFAULT FALSE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	CONSTRAINT chk_project_shadow_gross_non_negative CHECK (gross_transaction_amount >= 0),
+	CONSTRAINT chk_project_shadow_fee_non_negative CHECK (kleenup_fee_amount >= 0),
+	CONSTRAINT chk_project_shadow_fee_within_gross CHECK (kleenup_fee_amount <= gross_transaction_amount)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_shadow_address_hash
+	ON project_shadow (address_hash, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_project_shadow_pending_compute
+	ON project_shadow (project_status, disputed_flag, computation_queued);
+
+CREATE TABLE IF NOT EXISTS landing_visits (
+	visit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	agent_id VARCHAR(80) NOT NULL REFERENCES agents(agent_id),
+	visitor_ip VARCHAR(80) NOT NULL,
+	source_url TEXT NULL,
+	fingerprint VARCHAR(160) NULL,
+	visited_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_landing_visits_agent_visited_at
+	ON landing_visits (agent_id, visited_at DESC);
+
 CREATE TABLE IF NOT EXISTS admin_audit_log (
 	audit_id UUID PRIMARY KEY,
 	admin_id VARCHAR(80) NOT NULL,
@@ -199,5 +234,11 @@ EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS trg_settlement_ledger_set_updated_at ON settlement_ledger;
 CREATE TRIGGER trg_settlement_ledger_set_updated_at
 BEFORE UPDATE ON settlement_ledger
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_project_shadow_set_updated_at ON project_shadow;
+CREATE TRIGGER trg_project_shadow_set_updated_at
+BEFORE UPDATE ON project_shadow
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
