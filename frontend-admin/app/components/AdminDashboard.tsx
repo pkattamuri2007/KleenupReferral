@@ -1,5 +1,6 @@
 "use client";
-import { useState, CSSProperties } from "react";
+import { useState, useEffect, CSSProperties } from "react";
+import { adminApi, AgentRow, LedgerRow, PolicyRow } from "@/lib/api";
 
 /* ────────────────────────────────────────────────────────────
    DESIGN TOKENS
@@ -76,7 +77,7 @@ interface Reclaw {
 /* ────────────────────────────────────────────────────────────
    MOCK DATA  (SRS 22-step scenario)
 ──────────────────────────────────────────────────────────── */
-const AGENTS: Agent[] = [
+let AGENTS: Agent[] = [
   { id:"X-Jane123", idType:"PARTNER_KEY", name:"Jane Mitchell", email:"jane@mdrealty.com", initials:"JM", status:"ACTIVE", tier:"GOLD", policyId:"pol-vip", referrals:47, payable:0, location:"Bethesda, MD", source:"BULK_UPLOAD", w9:true, terms:true },
   { id:"88472", idType:"PRODUCTION", name:"Bob Homeowner", email:"bob@example.com", initials:"BH", status:"ACTIVE", tier:"BRONZE", policyId:"pol-base", referrals:2, payable:0, location:"Aspen Hill, MD", source:"APP_AUTO_ENROLL", w9:false, terms:true },
   { id:"X-9a8b7c6d", idType:"PARTNER_KEY", name:"Priya Sharma", email:"priya@capitol.com", initials:"PS", status:"ACTIVE", tier:"PLATINUM", policyId:"pol-vip", parentId:"X-Jane123", referrals:89, payable:5670, location:"Arlington, VA", source:"TIER2_RECRUITMENT", w9:true, terms:true },
@@ -85,7 +86,7 @@ const AGENTS: Agent[] = [
   { id:"72341", idType:"PRODUCTION", name:"Marcus Williams", email:"marcus@example.com", initials:"MW", status:"ACTIVE", tier:"SILVER", policyId:"pol-std", referrals:23, payable:1150, location:"Silver Spring, MD", source:"APP_AUTO_ENROLL", w9:true, terms:true },
 ];
 
-const POLICIES: Policy[] = [
+let POLICIES: Policy[] = [
   { id:"pol-vip", name:"Realtor VIP Policy", cat:"CLEANING", desc:"Temporal decay: 50% gross revenue months 1-6, 25% months 7-12. Designed for high-value realtor partners.", status:"ACTIVE", tiers:[{seq:1,months:6,metric:"PERCENT_REV",value:0.5},{seq:2,months:6,metric:"PERCENT_REV",value:0.25}], spiff:true, spiffN:10, spiffAmt:100, created:"2024-01-01", ver:"2.1" },
   { id:"pol-base", name:"Global Consumer Policy", cat:"ALL", desc:"Auto-attached to all new app registrations. Zero-friction enrollment (SRS §3.4).", status:"ACTIVE", tiers:[{seq:1,months:12,metric:"PERCENT_REV",value:0.1}], spiff:false, created:"2024-01-01", ver:"1.0" },
   { id:"pol-std", name:"Standard Commission", cat:"CLEANING", desc:"Standard 10% of gross revenue for 12 months.", status:"ACTIVE", tiers:[{seq:1,months:12,metric:"PERCENT_REV",value:0.1}], spiff:false, created:"2024-01-01", ver:"1.3" },
@@ -103,7 +104,7 @@ const APPROVALS: Approval[] = [
   { id:"apv-006", agentId:"X-9a8b7c6d", agentName:"Priya Sharma", agentEmail:"priya@capitol.com", type:"POLICY_CHANGE", submitted:"2024-12-05", status:"REJECTED", reviewer:"Admin", notes:"Denied — Realtor VIP already superior." },
 ];
 
-const LEDGER: Ledger[] = [
+let LEDGER: Ledger[] = [
   { id:"ldg-001", agentId:"X-Jane123", agentName:"Jane Mitchell", projectId:"PROJ-40021", address:"123 Main Street, Aspen Hill, MD 20906", txType:"EARNING", fee:20, amount:10, status:"APPROVED", policy:"Realtor VIP — Tier 1 (50%)", created:"2024-12-01" },
   { id:"ldg-002", agentId:"X-Jane123", agentName:"Jane Mitchell", projectId:"PROJ-40021", address:"123 Main Street, Aspen Hill, MD 20906", txType:"RECLAW", fee:20, amount:-10, status:"APPROVED", policy:"Manual Adjustment", created:"2024-12-09", reasonCode:"CHARGEBACK_REVERSAL" },
   { id:"ldg-003", agentId:"X-9a8b7c6d", agentName:"Priya Sharma", projectId:"PROJ-41055", address:"456 Oak Ave, Arlington, VA 22201", txType:"EARNING", fee:35, amount:17.5, status:"APPROVED", policy:"Realtor VIP — Tier 1 (50%)", created:"2024-12-05" },
@@ -910,17 +911,97 @@ const NAV_GROUPS = [
   {section:"Agents",      items:[{id:"agents",label:"Agent Lifecycle",icon:"👥"},{id:"analytics",label:"Analytics",icon:"📊"}]},
 ];
 
+function mapAgent(row: AgentRow): Agent {
+  return {
+    id: row.agent_id,
+    idType: row.agent_id.startsWith("X-") ? "PARTNER_KEY" : "PRODUCTION",
+    name: row.agent_id,
+    email: "",
+    initials: row.agent_id.slice(0, 2).toUpperCase(),
+    status: row.status as Agent["status"],
+    tier: "BRONZE",
+    policyId: row.assigned_policy_id,
+    parentId: row.parent_agent_id || undefined,
+    referrals: 0,
+    payable: 0,
+    source: "BULK_UPLOAD",
+    w9: false,
+    terms: false,
+  };
+}
+
+function mapLedger(row: LedgerRow): Ledger {
+  return {
+    id: row.ledger_id,
+    agentId: row.agent_id,
+    agentName: row.agent_id,
+    projectId: row.master_project_id || "",
+    address: "",
+    txType: (row.tx_type as Ledger["txType"]) || "EARNING",
+    fee: row.fee_snapshot || 0,
+    amount: row.amount,
+    status: row.status as Ledger["status"],
+    policy: row.policy_id || "",
+    created: row.created_at,
+    reasonCode: row.reason_code,
+  };
+}
+
+function mapPolicy(row: PolicyRow): Policy {
+  return {
+    id: row.policy_id,
+    name: row.name,
+    cat: (row.service_category as Policy["cat"]) || "ALL",
+    desc: "",
+    status: row.status as Policy["status"],
+    tiers: [],
+    spiff: false,
+    created: row.created_at,
+    ver: "1.0",
+  };
+}
+
 export default function AdminDashboard() {
   const [page, setPage] = useState("dashboard");
+  const [dataKey, setDataKey] = useState(0);
+  const [loading, setLoading] = useState(true);
   const label = NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page)?.label??"Dashboard";
 
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [prospectsRes, settlementsRes, policiesRes] = await Promise.allSettled([
+          adminApi.getProspects(),
+          adminApi.getPendingSettlements(),
+          adminApi.getPolicies(),
+        ]);
+
+        if (prospectsRes.status === "fulfilled" && prospectsRes.value.length > 0) {
+          AGENTS = prospectsRes.value.map(mapAgent);
+        }
+        if (settlementsRes.status === "fulfilled" && settlementsRes.value.length > 0) {
+          LEDGER = settlementsRes.value.map(mapLedger);
+        }
+        if (policiesRes.status === "fulfilled" && policiesRes.value.length > 0) {
+          POLICIES = policiesRes.value.map(mapPolicy);
+        }
+      } catch {
+        // keep mock data on failure
+      } finally {
+        setLoading(false);
+        setDataKey(k => k + 1);
+      }
+    }
+    loadData();
+  }, []);
+
   const renderPage = () => {
-    if (page==="approvals") return <PageApprovals />;
-    if (page==="policies")  return <PagePolicies />;
-    if (page==="reclaws")   return <PageReclaws />;
-    if (page==="agents")    return <PageAgents />;
-    if (page==="analytics") return <PageAnalytics />;
-    return <PageDashboard go={setPage} />;
+    if (page==="approvals") return <PageApprovals key={dataKey} />;
+    if (page==="policies")  return <PagePolicies key={dataKey} />;
+    if (page==="reclaws")   return <PageReclaws key={dataKey} />;
+    if (page==="agents")    return <PageAgents key={dataKey} />;
+    if (page==="analytics") return <PageAnalytics key={dataKey} />;
+    return <PageDashboard key={dataKey} go={setPage} />;
   };
 
   return (
@@ -975,7 +1056,13 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        <main style={{padding:26,flex:1}}>{renderPage()}</main>
+        <main style={{padding:26,flex:1}}>
+          {loading ? (
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"60vh",color:C.purple,fontWeight:600,fontSize:16}}>
+              Loading data…
+            </div>
+          ) : renderPage()}
+        </main>
       </div>
     </div>
   );
