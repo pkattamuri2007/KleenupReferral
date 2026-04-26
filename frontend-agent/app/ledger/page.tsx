@@ -1,36 +1,59 @@
 "use client"
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, FileText, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
+import { getLedger, getMe, LedgerEntry } from '../lib/api';
+
+function describeEntry(entry: LedgerEntry): string {
+  const type = entry.transaction_type;
+  const project = entry.master_project_id ?? '—';
+  if (type === 'RECLAW') return `Adjustment — ${entry.admin_reason_code ?? 'Reclaw'}`;
+  if (type === 'TIER2_OVERRIDE') return `Tier-2 Override — ${project}`;
+  if (type === 'SPIFF') return `Spiff Bonus — ${project}`;
+  return `Referral Earning — ${project}`;
+}
+
+function getStatusBadge(status: string) {
+  switch (status) {
+    case 'APPROVED':
+      return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#3EC7A6]/10 text-[#3EC7A6] border border-[#3EC7A6]/20"><CheckCircle className="w-3 h-3 mr-1" /> APPROVED</span>;
+    case 'PENDING_REVIEW':
+      return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200"><Clock className="w-3 h-3 mr-1" /> PENDING</span>;
+    case 'REJECTED':
+      return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-800 border border-red-200"><AlertTriangle className="w-3 h-3 mr-1" /> REJECTED</span>;
+    case 'ON_HOLD':
+      return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200"><Clock className="w-3 h-3 mr-1" /> ON HOLD</span>;
+    case 'RECLAW':
+      return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-gray-100 text-gray-800 border border-gray-300">ADJUSTMENT</span>;
+    default:
+      return <span>{status}</span>;
+  }
+}
 
 export default function LedgerHistory() {
-  const ledgerEntries = [
-    { id: 'LDG-001', date: '2026-03-24', description: 'Referral Bonus - 123 Main St', amount: 20.00, status: 'APPROVED' },
-    { id: 'LDG-002', date: '2026-03-25', description: 'Referral Bonus - 789 Pine Rd', amount: 15.50, status: 'PENDING_REVIEW' },
-    { id: 'LDG-003', date: '2026-03-20', description: 'Referral Bonus - 404 Cedar Ln', amount: 25.00, status: 'APPROVED' },
-    { id: 'LDG-004', date: '2026-03-10', description: 'Adjustment - Chargeback Reversal', amount: -10.00, status: 'RECLAW' },
-    { id: 'LDG-005', date: '2026-02-28', description: 'Referral Bonus - 55 Oak Ave', amount: 30.00, status: 'APPROVED' },
-    { id: 'LDG-006', date: '2026-02-15', description: 'Referral Bonus - 12 Elm St', amount: 18.00, status: 'REJECTED' }
-  ];
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [agentId, setAgentId] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'APPROVED':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#3EC7A6]/10 text-[#3EC7A6] border border-[#3EC7A6]/20"><CheckCircle className="w-3 h-3 mr-1" /> APPROVED</span>;
-      case 'PENDING_REVIEW':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200"><Clock className="w-3 h-3 mr-1" /> PENDING</span>;
-      case 'REJECTED':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-800 border border-red-200"><AlertTriangle className="w-3 h-3 mr-1" /> REJECTED</span>;
-      case 'RECLAW':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-gray-100 text-gray-800 border border-gray-300">ADJUSTMENT</span>;
-      default:
-        return <span>{status}</span>;
+  useEffect(() => {
+    async function load() {
+      try {
+        const [me, ledger] = await Promise.all([getMe(), getLedger()]);
+        setAgentId(me.agent_id as string);
+        setEntries(ledger);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load ledger');
+      } finally {
+        setLoading(false);
+      }
     }
-  };
+    load();
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F4F5F7] font-sans pb-12">
-      
+
       {/* Navbar / Top Header */}
       <div className="bg-[#4B2E83] px-6 py-4 md:px-10 shadow-md">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
@@ -39,7 +62,7 @@ export default function LedgerHistory() {
             <span className="bg-[#3EC7A6] text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Partner</span>
           </div>
           <div className="flex items-center space-x-3 bg-white/10 px-4 py-1.5 rounded-full border border-white/20">
-            <span className="text-sm font-medium text-white shadow-sm">Jane Doe</span>
+            <span className="text-sm font-medium text-white shadow-sm">{agentId || '—'}</span>
           </div>
         </div>
       </div>
@@ -61,35 +84,55 @@ export default function LedgerHistory() {
               <p className="text-[#6B7280] text-sm mt-1">A complete record of all your earnings, pending approvals, and adjustments.</p>
             </div>
           </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#F4F5F7] text-[#6B7280] text-xs uppercase tracking-wider font-bold">
-                  <th className="p-4 pl-6">Transaction ID</th>
-                  <th className="p-4">Date</th>
-                  <th className="p-4">Description</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4 text-right pr-6">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-sm">
-                {ledgerEntries.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-[#F4F5F7]/50 transition-colors">
-                    <td className="p-4 pl-6 font-mono text-xs text-[#6B7280]">{entry.id}</td>
-                    <td className="p-4 text-[#6B7280] font-medium">{entry.date}</td>
-                    <td className="p-4 text-[#2D2D2D]">{entry.description}</td>
-                    <td className="p-4">
-                      {getStatusBadge(entry.status)}
-                    </td>
-                    <td className={`p-4 text-right pr-6 font-bold ${entry.amount < 0 ? 'text-red-600' : 'text-[#4B2E83]'}`}>
-                      {entry.amount < 0 ? '-' : '+'}${Math.abs(entry.amount).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+
+          {loading && (
+            <p className="p-6 text-[#6B7280] text-sm">Loading…</p>
+          )}
+
+          {error && (
+            <div className="p-6">
+              <p className="text-red-600 font-semibold text-sm">Could not load ledger</p>
+              <p className="text-[#6B7280] text-xs font-mono mt-1 break-all">{error}</p>
+            </div>
+          )}
+
+          {!loading && !error && (
+            <div className="overflow-x-auto">
+              {entries.length === 0 ? (
+                <p className="p-6 text-[#6B7280] text-sm">No ledger entries yet.</p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#F4F5F7] text-[#6B7280] text-xs uppercase tracking-wider font-bold">
+                      <th className="p-4 pl-6">Transaction ID</th>
+                      <th className="p-4">Date</th>
+                      <th className="p-4">Description</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right pr-6">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-sm">
+                    {entries.map((entry) => {
+                      const amount = Number(entry.amount);
+                      return (
+                        <tr key={entry.ledger_id} className="hover:bg-[#F4F5F7]/50 transition-colors">
+                          <td className="p-4 pl-6 font-mono text-xs text-[#6B7280]">{entry.ledger_id}</td>
+                          <td className="p-4 text-[#6B7280] font-medium">
+                            {new Date(entry.created_at).toISOString().slice(0, 10)}
+                          </td>
+                          <td className="p-4 text-[#2D2D2D]">{describeEntry(entry)}</td>
+                          <td className="p-4">{getStatusBadge(entry.status)}</td>
+                          <td className={`p-4 text-right pr-6 font-bold ${amount < 0 ? 'text-red-600' : 'text-[#4B2E83]'}`}>
+                            {amount < 0 ? '-' : '+'}${Math.abs(amount).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

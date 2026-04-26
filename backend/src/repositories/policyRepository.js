@@ -20,7 +20,14 @@ async function findById(policyId) {
     [policyId]
   );
 
-  return { ...policyRows[0], tiers: tierRows };
+  const tiers = tierRows.map(t => ({
+    tierSequence:   t.tier_sequence,
+    durationMonths: t.duration_months,
+    metricType:     t.metric_type,
+    metricValue:    t.metric_value,
+  }));
+
+  return { ...policyRows[0], tiers };
 }
 
 async function create({ policyName, serviceCategory }) {
